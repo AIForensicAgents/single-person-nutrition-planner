@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Single-Person Nutrition Planner</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js" defer></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+* { font-family: 'Inter', sans-serif; }
+[x-cloak] { display: none !important; }
+:root {
+  --primary: #2D6A4F;
+  --primary-light: #40916C;
+  --accent: #D4A373;
+  --warm-bg: #FEFAE0;
+  --card-bg: #FFFFFF;
+  --text-dark: #1B1B1B;
+  --text-muted: #6B705C;
+}
+body { background: var(--warm-bg); color: var(--text-dark); }
+.btn-primary { background: var(--primary); color: white; min-height: 48px; }
+.btn-primary:hover { background: var(--primary-light); }
+.btn-secondary { background: var(--accent); color: var(--text-dark); min-height: 48px; }
+.card { background: var(--card-bg); border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); }
+.tab-active { border-bottom: 3px solid var(--primary); color: var(--primary); font-weight: 600; }
+.tab-inactive { border-bottom: 3px solid transparent; color: var(--text-muted); }
+input, select, textarea { min-height: 48px; font-size: 16px !important; }
+.chip { display: inline-flex; align-items: center; padding: 6px 14px; border-radius: 20px; font-size: 14px; margin: 3px; }
+.chip-filled { background: #B7E4C7; color: #1B4332; }
+.chip-outline { background: transparent; border: 1.5px solid #B7E4C7; color: var(--text-muted); }
+.fade-in { animation: fadeIn 0.3s ease-in; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.spinner { border: 3px solid #E8E8E4; border-top: 3px solid var(--primary); border-radius: 50%; width: 28px; height: 28px; animation: spin 0.8s linear infinite; display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.progress-ring { transition: stroke-dashoffset 0.5s ease; }
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: #B7E4C7; border-radius: 4px; }
+.meal-card:hover { transform: translateY(-2px); transition: transform 0.2s; }
+.reminder-pulse { animation: pulse 2s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+</style>
+</head>
+<body x-data="app()" x-init="init()" class="min-h-screen pb-24">
+
+<!-- Header -->
+<header class="sticky top-0 z-50 bg-white/90 backdrop-blur-md shadow-sm px-4 py-3">
+  <div class="max-w-lg mx-auto flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <span class="text-2xl">🥗</span>
+      <h1 class="text-lg font-bold" style="color: var(--primary)">NutriPlan Solo</h1>
+    </div>
+    <button @click="showSettings = !showSettings" class="p-2 rounded-full hover:bg-gray-100" style="min-width:44px;min-height:44px;">
+      <span class="text-xl">⚙️</span>
+    </button>
+  </div>
+</header>
+
+<!-- Onboarding Overlay -->
+<div x-show="showOnboarding" x-cloak class="fixed inset-0 z-[100] bg-black/40 flex items-end sm:items-center justify-center" @click.self="false">
+  <div class="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[90vh] overflow-y-auto p-6 fade-in">
+    
+    <!-- Step Indicator -->
+    <div class="flex justify-center gap-2 mb-6">
+      <template x-for="i in 5">
+        <div class="w-8 h-1.5 rounded-full transition-all" :class="onboardStep >= i ? 'bg-green-700' : 'bg-gray-200'"></div>
+      </template>
+    </div>
+
+    <!-- Step 1: Welcome -->
+    <div x-show="onboardStep === 1" class="fade-in">
+      <div class="text-center mb-6">
+        <span class="text-5xl block mb-3">👋</span>
+        <h2 class="text-2xl font-bold mb-2">Welcome to NutriPlan Solo</h2>
+        <p class="text-gray-500 text-base leading-relaxed">Your personal meal planner that works with your health needs, medications, and tastes. Let's set things up in a few easy steps.</p>
+      </div>
+      <button @click="onboardStep = 2" class="btn-primary w-full rounded-xl font-semibold text-lg py-3">Let's Get Started →</button>
+    </div>
+
+    <!-- Step 2: Health Conditions -->
+    <div x-show="onboardStep === 2" class="fade-in">
+      <h2 class="text-xl font-bold mb-1">🏥 Health Conditions</h2>
+      <p class="text-gray-500 mb-4 text-sm">Select any that apply — this helps us plan safe meals for you.</p>
+      
+      <div class="flex flex-wrap gap-1 mb-4">
+        <template x-for="condition in commonConditions">
+          <button @click="toggleCondition(condition)" class="chip cursor-pointer transition-all" 
+            :class="profile.conditions.includes(condition) ? 'chip-filled font-medium' : 'chip-outline'">
+            <span x-text="condition"></span>
+          </button>
+        </template>
+      </div>
+      
+      <div class="flex gap-2 mb-4">
+        <input x-model="newCondition" @keydown.enter="addCustomCondition()" type="text" placeholder="Add other condition..." class="flex-1 border rounded-xl px-4 focus:ring-2 focus:ring-green-300 outline-none">
+        <button @click="addCustomCondition()" class="btn-primary rounded-xl px-4 font-medium">Add</button>
+      </div>
+
+      <div class="flex gap-3 mt-6">
+        <button @click="onboardStep = 1" class="flex-1 py-3 rounded-xl border-2 font-medium" style="border-color: var(--primary); color: var(--primary)">← Back</button>
+        <button @click="onboardStep = 3" class="flex-1 btn-primary rounded-xl font-semibold">Next →</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Medications -->
+    <div x-show="onboardStep === 3" class="fade-in">
+      <h2 class="text-xl font-bold mb-1">💊 Medications & Schedule</h2>
+      <p class="text-gray-500 mb-4 text-sm">We'll coordinate your meals with your medication timing.</p>
+      
+      <template x-for="(med, idx) in profile.medications" :key="idx">
+        <div class="card p-3 mb-3 flex items-center justify-between">
+          <div>
+            <span class="font-medium" x-text="med.name"></span>
+            <div class="text-sm text-gray-400" x-text="med.time + ' · ' + med.notes"></div>
+          </div>
+          <button @click="profile.medications.splice(idx, 1)" class="text-red-400 p-2 text-lg">✕</button>
+        </div>
+      </template>
+
+      <div class="space-y-3 mb-4">
+        <input x-model="newMed.name" type="text" placeholder="Medication name (e.g., Metformin)" class="w-full border rounded-xl px-4 focus:ring-2 focus:ring-green-300 outline-none">
+        <div class="flex gap-2">
+          <select x-model="newMed.time" class="flex-1 border rounded-xl px-3 focus:ring-2 focus:ring-green-300 outline-none">
+            <option value="">When taken?</option>
+            <option>Morning (6-8 AM)</option>
+            <option>Mid-morning (9-11 AM)</option>
+            <option>Noon (12 PM)</option>
+            <option>Afternoon (2-4 PM)</option>
+            <option>Evening (5-7 PM)</option>
+            <option>Bedtime (9-10 PM)</option>
+          </select>
+          <select x-model="newMed.notes" class="flex-1 border rounded-xl px-3 focus:ring-2 focus:ring-green-300 outline-none">
+            <option value="">With food?</option>
+            <option>With food</option>
+            <option>Before food</option>
+            <option>After food</option>
+            <option>Empty stomach</option>
+            <option>Any time</option>
+          </select>
+        </div>
+        <button @click="addMedication()" class="w-full py-3 rounded-xl border-2 border-dashed font-medium" style="border-color: var(--primary); color: var(--primary)">+ Add Medication</button>
+      </div>
+
+      <div class="flex gap-3 mt-6">
+        <button @click="onboardStep = 2" class="flex-1 py-3 rounded-xl border-2 font-medium" style="border-color: var(--primary); color: var(--primary)">← Back</button>
+        <button @click="onboardStep = 4" class="flex-1 btn-primary rounded-xl font-semibold">Next →</button>
+      </div>
+    </div>
+
+    <!-- Step 4: Preferences -->
+    <div x-show="onboardStep === 4" class="fade-in">
+      <h2 class="text-xl font-bold mb-1">😋 Taste & Diet Preferences</h2>
+      <p class="text-gray-500 mb-4 text-sm">Tell us what you enjoy — we'll make meals you actually want to eat!</p>
+
+      <label class="block text-sm font-medium mb-1">Diet style</label>
+      <div class="flex flex-wrap gap-1 mb-4">
+        <template x-for="diet in dietOptions">
+          <button @click="profile.diet = diet" class="chip cursor-pointer transition-all"
+            :class="profile.diet === diet ? 'chip-filled font-medium' : 'chip-outline'">
+            <span x-text="diet"></span>
+          </button>
+        </template>
+      </div>
+
+      <label class="block text-sm font-medium mb-1">Allergies</label>
+      <div class="flex flex-wrap gap-1 mb-4">
+        <template x-for="allergy in commonAllergies">
+          <button @click="toggleAllergy(allergy)" class="chip cursor-pointer transition-all"
+            :class="profile.allergies.includes(allergy) ? 'bg-red-100 text-red-700 font-medium' : 'chip-outline'">
+            <span x-text="allergy"></span>
+          </button>
+        </template>
+      </div>
+
+      <label class="block text-sm font-medium mb-1">Favorite cuisines</label>
+      <div class="flex flex-wrap gap-1 mb-4">
+        <template x-for="cuisine in cuisineOptions">
+          <button @click="toggleCuisine(cuisine)" class="chip cursor-pointer transition-all"
+            :class="profile.cuisines.includes(cuisine) ? 'chip-filled font-medium' : 'chip-outline'">
+            <span x-text="cuisine"></span>
+          </button>
+        </template>
+      </div>
+
+      <label class="block text-sm font-medium mb-1">Weekly grocery budget</label>
+      <div class="flex items-center gap-3 mb-2">
+        <span class="text-gray-400">$</span>
+        <input x-model.number="profile.budget" type="range" min="20" max="150" step="5" class="flex-1 accent-green-700">
+        <span class="font-bold text-lg" style="color: var(--primary)" x-text="'$' + profile.budget"></span>
+      </div>
+
+      <label class="block text-sm font-medium mb-1 mt-3">Cooking comfort level</label>
+      <select x-model="profile.cookingLevel" class="w-full border rounded-xl px-4 focus:ring-2 focus:ring-green-300 outline-none">
+        <option>Minimal — microwave & assembling only</option>
+        <option>Basic — simple stovetop, oven, slow cooker</option>
+        <option>Moderate — comfortable in the kitchen</option>
+        <option>Advanced — enjoy cooking from scratch</option>
+      </select>
+
+      <div class="flex gap-3 mt-6">
+        <button @click="onboardStep = 3" class="flex-1 py-3 rounded-xl border-2 font-medium" style="border-color: var(--primary); color: var(--primary)">← Back</button>
+        <button @click="onboardStep = 5" class="flex-1 btn-primary rounded-xl font-semibold">Next →</button>
+      </div>
+    </div>
+
+    <!-- Step 5: Pantry -->
+    <div x-show="onboardStep === 5" class="fade-in">
+      <h2 class="text-xl font-bold mb-1">🥫 Your Pantry</h2>
+      <p class="text-gray-500 mb-4 text-sm">What do you already have? We'll use these items first to reduce waste.</p>
+
+      <div class="flex flex-wrap gap-1 mb-3">
+        <template x-for="(item, idx) in profile.pantry" :key="idx">
+          <span class="chip chip-filled">
+            <span x-text="item"></span>
+            <button @click="profile.pantry.splice(idx, 1)" class="ml-1 text-green-800 font-bold">✕</button>
+          </span>
+        </template>
+      </div>
+
+      <div class="flex gap-2 mb-3">
+        <input x-model="newPantryItem" @keydown.enter="addPantryItem()" type="text" placeholder="e.g., brown rice, olive oil, canned tuna..." class="flex-1 border rounded-xl px-4 focus:ring-2 focus:ring-green-300 outline-none">
+        <button @click="addPantryItem()" class="btn-primary rounded-xl px-4 font-medium">Add</button>
+      </div>
+
+      <p class="text-xs text-gray-400 mb-4">💡 Tip: Add basics like oils, spices, grains — we'll plan around them!</p>
+
+      <div class="flex gap-3 mt-6">
+        <button @click="onboardStep = 4" class="flex-1 py-3 rounded-xl border-2 font-medium" style="border-color: var(--primary); color: var(--primary)">← Back</button>
+        <button @click="completeOnboarding()" class="flex-1 btn-primary rounded-xl font-semibold" :disabled="loading">
+          <span x-show="!loading">Generate My Plan 🎉</span>
+          <span x-show="loading" class="flex items-center justify-center gap-2"><span class="spinner"></span> Creating...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Panel -->
+<div x-show="showSettings" x-cloak class="fixed inset-0 z-[90] bg-black/40 flex items-end sm:items-center justify-center" @click.self="showSettings = false">
+  <div class="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[85vh] overflow-y-auto p-6 fade-in">
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="text-xl font-bold">⚙️ Settings & Profile</h2>
+      <button @click="showSettings = false" class="text-2xl p-2">✕</button>
+    </div>
+
+    <div class="space-y-4">
+      <div>
+        <h3 class="font-semibold mb-2">Conditions</h3>
+        <div class="flex flex-wrap gap-1">
+          <template x-for="condition in commonConditions">
+            <button @click="toggleCondition(condition)" class="chip cursor-pointer transition-all"
+              :class="profile.conditions.includes(condition) ? 'chip-filled font-medium' : 'chip-outline'">
+              <span x-text="condition"></span>
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <div>
+        <h3 class="font-semibold mb-2">Medications (<span x-text="profile.medications.length"></span>)</h3>
+        <template x-for="(med, idx) in profile.medications" :key="idx">
+          <div class="flex items-center justify-between bg-gray-50 rounded-lg p-2 mb-1">
+            <span class="text-sm" x-text="med.name + ' — ' + med.time"></span>
+            <button @click="profile.medications.splice(idx, 1)" class="text-red-400 p-1">✕</button>
+          </div>
+        </template>
+      </div>
+
+      <div>
+        <h3 class="font-semibold mb-2">Budget: $<span x-text="profile.budget"></span>/week</h3>
+        <input x-model.number="profile.budget" type="range" min="20" max="150" step="5" class="w-full accent-green-700">
+      </div>
+
+      <button @click="showOnboarding = true; onboardStep = 1; showSettings = false" class="w-full py-3 rounded-xl border-2 font-medium" style="border-color: var(--primary); color: var(--primary)">
+        Re-run Full Setup
+      </button>
+
+      <button @click="resetApp()" class="w-full py-3 rounded-xl bg-red-50 text-red-600 font-medium">
+        🗑️ Reset All Data
+      </button>
+
+      <div class="text-xs text-gray-400 text-center mt-4">
+        <p>AI Tokens Used — Input: <span x-text="aiStats.totalInputTokens"></span> · Output: <span x-text="aiStats.totalOutputTokens"></span></p>
+        <p>Total AI Time: <span x-text="(aiStats.totalTime / 1000).toFixed(1)"></span>s</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Main Content -->
+<main x-show="!showOnboarding" x-cloak class="max-w-lg mx-auto px-4 pt-4">
+
+  <!-- Tab Navigation -->
+  <nav class="flex border-b mb-4 -mx-4 px-4 overflow-x-auto">
+    <button @click="activeTab = 'plan'" class="flex-1 py-3 text-center text-sm font-medium whitespace-nowrap transition-all" :class="activeTab === 'plan' ? 'tab-active' : 'tab-inactive'">📋 Meal Plan</button>
+    <button @click="activeTab = 'reminders'" class="flex-1 py-3 text-center text-sm font-medium whitespace-nowrap transition-all" :class="activeTab === 'reminders' ? 'tab-active' : 'tab-inactive'">⏰ Reminders</button>
+    <button @click="activeTab = 'shopping'" class="flex-1 py-3 text-center text-sm font-medium whitespace-nowrap transition-all" :class="activeTab === 'shopping' ? 'tab-active' : 'tab-inactive'">🛒 Shopping</button>
+    <button @click="activeTab = 'nutrition'" class="flex-1 py-3 text-center text-sm font-medium whitespace-nowrap transition-all" :class="activeTab === 'nutrition' ? 'tab-active' : 'tab-inactive'">📊 Nutrition</button>
+  </nav>
+
+  <!-- MEAL PLAN TAB -->
+  <div x-show="activeTab === 'plan'" class="fade-in">
+    
+    <!-- Day Selector -->
+    <div class="flex gap-2 overflow-x-auto pb-3 -mx-1 px-1">
+      <template x-for="(day, idx) in weekDays" :key="idx">
+        <button @click="selectedDay = idx" class="flex-shrink-0 w-14 py-2 rounded-xl text-center text-sm font-medium transition-all"
+          :class="selectedDay === idx ? 'bg-green-700 text-white shadow-md' : 'bg-white text-gray-500 border'">
+          <div class="text-xs" x-text="day.short"></div>
+          <div class="font-bold" x-text="day.date"></div>
+        </button>
+      </template>
+    </div>
+
+    <!-- Loading State -->
+    <div x-show="loading" class="text-center py-12">
+      <div class="spinner mx-auto mb-4" style="width:40px;height:40px;"></div>
+      <p class="text-gray-500">Creating your personalized meal plan...</p>
+      <p class="text-xs text-gray-400 mt-1">Considering your conditions, meds & preferences</p>
+    </div>
+
+    <!-- Meals for Selected Day -->
+    <div x-show="!loading && mealPlan.length > 0" class="space-y-3 mt-3">
+      <template x-for="(meal, mIdx) in getDayMeals()" :key="mIdx">
+        <div class="card p-4 meal-card cursor-pointer" @click="expandedMeal = expandedMeal === (selectedDay + '-' + mIdx) ? null : (selectedDay + '-' + mIdx)">
+          <div class="flex items-start justify-between">
+            <div class="flex-1">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-lg" x-text="meal.emoji"></span>
+                <span class="text-xs font-medium px-2 py-0.5 rounded-full" 
+                  :class="meal.type === 'Breakfast' ? 'bg-yellow-100 text-yellow-700' : meal.type === 'Lunch' ? 'bg-blue-100 text-blue-700' : meal.type === 'Dinner' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'"
+                  x-text="meal.type"></span>
+                <span class="text-xs text-gray-400" x-text="meal.time"></span>
+              </div>
+              <h3 class="font-semibold text-base" x-text="meal.name"></h3>
+              <p class="text-sm text-gray-400 mt-0.5" x-text="meal.subtitle"></p>
+            </div>
+            <div class="text-right flex-shrink-0 ml-3">
+              <div class="text-sm font-bold" style="color: var(--primary)" x-text="meal.calories + ' cal'"></div>
+              <div class="text-xs text-gray-400" x-text="'~$' + meal.cost.toFixed(2)"></div>
+            </div>
+          </div>
+
+          <!-- Expanded Details -->
+          <div x-show="expandedMeal === (selectedDay + '-' + mIdx)" class="mt-3 pt-3 border-t" @click.stop>
+            
+            <div x-show="meal.medNote" class="bg-amber-50 rounded-lg p-2 mb-3 text-sm text-amber-800 flex items-start gap-2">
+              <span>💊</span>
+              <span x-text="meal.medNote"></span>
+            </div>
+
+            <div class="grid grid-cols-4 gap-2 mb-3 text-center text-xs">
+              <div class="bg-gray-50 rounded-lg p-2">
+                <div class="font-bold text-sm" x-text="meal.protein + 'g'"></div>
+                <div class="text-gray-400">Protein</div>
+              </div>
+              <div class="bg-gray-50 rounded-lg p-2">
+                <div class="font-bold text-sm" x-text="meal.carbs + 'g'"></div>
+                <div class="text-gray-400">Carbs</div>
+              </div>
+              <div class="bg-gray-50 rounded-lg p-2">
+                <div class="font-bold text-sm" x-text="meal.fat + 'g'"></div>
+                <div class="text-gray-400">Fat</div>
+              </div>
+              <div class="bg-gray-50 rounded-lg p-2">
+                <div class="font-bold text-sm" x-text="meal.sodium + 'mg'"></div>
+                <div class="text-gray-400">Sodium</div>
+              </div>
+            </div>
+
+            <h4 class="font-semibold text-sm mb-2">📝 Ingredients (1 serving)</h4>
+            <ul class="text-sm text-gray-600 space-y-1 mb-3">
+              <template x-for="ing in meal.ingredients">
+                <li class="flex items-start gap-2"><span class="text-green-600">•</span><span x-text="ing"></span></li>
+              </template>
+            </ul>
+
+            <h4 class="font-semibold text-sm mb-2">👨‍🍳 Steps</h4>
+            <ol class="text-sm text-gray-600 space-y-2 mb-3">
+              <template x-for="(step, sIdx) in meal.steps">
+                <li class="flex items-start gap-2">
+                  <span class="flex-shrink-0 w-5 h-5 rounded-full bg-green-100 text-green-700 text-xs flex items-center justify-center font-bold" x-text="sIdx + 1"></span>
+                  <span x-text="step"></span>
+                </li>
+              </template>
+            </ol>
+
+            <div x-show="meal.batchTip" class="bg-blue-50 rounded-lg p-2 text-sm text-blue-800 flex items-start gap-2">
+              <span>🧊</span>
+              <span x-text="meal.batchTip"></span>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Day Summary -->
+      <div x-show="getDayMeals().length > 0" class="card p-4 border-2 border-dashed" style="border-color: #B7E4C7">
+        <div class="text-center">
+          <div class="text-sm text-gray-500 mb-1">Daily Total</div>
+          <div class="flex justify-center gap-6 text-sm">
+            <span><strong x-text="getDayTotals().calories"></strong> cal</span>
+            <span><strong x-text="getDayTotals().protein"></strong>g protein</span>
+            <span><strong>$<span x-text="getDayTotals().cost"></span></strong></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- No Plan State -->
+    <div x-show="!loading && mealPlan.length === 0" class="text-center py-12">
+      <span class="text-5xl block mb-3">🍽️</span>
+      <h3 class="text-lg font-semibold mb-1">No meal plan yet</h3>
+      <p class="text-gray-400 text-sm mb-4">Let's create a personalized plan just for you!</p>
+      <button @click="generateMealPlan()" class="btn-primary rounded-xl px-8 py-3 font-semibold">Generate My Plan</button>
+    </div>
+
+    <!-- Regenerate Button -->
+    <div x-show="!loading && mealPlan.length > 0" class="mt-4 text-center">
+      <button @click="generateMealPlan()" class="py-3 px-6 rounded-xl font-medium text-sm" style="color: var(--primary)" :disabled="loading">
+        🔄 Regenerate This Week's Plan
+      </button>
+    </div>
+  </div>
+
+  <!-- REMINDERS TAB -->
+  <div x-show="activeTab === 'reminders'" class="fade-in">
+    <h2 class="text-lg font-bold mb-3">Today's Schedule</h2>
+    
+    <div x-show="reminders.length > 0" class="space-y-3">
+      <template x-for="(reminder, rIdx) in reminders" :key="rIdx">
+        <div class="card p-4 flex items-start gap-3" :class="reminder.completed ? 'opacity-50' : ''">
+          <button @click="toggleReminder(rIdx)" class="flex-shrink-0 w-7 h-7 rounded-full border-2 flex items-center justify-center mt-0.5 transition-all"
+            :class="reminder.completed ? 'bg-green-600 border-green-600' : 'border-gray-300'">
+            <span x-show="reminder.completed" class="text-white text-sm">✓</span>
+          </button>
+          <div class="flex-1">
+            <div class="flex items-center gap-2">
+              <span x-text="reminder.emoji"></span>
+              <span class="font-semibold text-sm" x-text="reminder.title"></span>
+            </div>
+            <div class="text-sm text-gray-400" x-text="reminder.time"></div>
+            <div class="text-sm text-gray-500 mt-1" x-text="reminder.detail"></div>
+          </div>
+          <span class="text-xs px-2 py-1 rounded-full flex-shrink-0"
+            :class="reminder.type === 'med' ? 'bg-red-50 text-red-600' : reminder.type === 'meal' ? 'bg-green-50 text-green-700' : 'bg-blue-50 text-blue-600'"
+            x-text="reminder.type === 'med' ? '💊 Med' : reminder.type === 'meal' ? '🍽️ Meal' : '💧 Hydrate'"></span>
+        </div>
+      </template>
+    </div>
+
+    <div x-show="reminders.length === 0" class="text-center py-12">
+      <span class="text-4xl block mb-3">⏰</span>
+      <p class="text-gray-400">Generate a meal plan first to see your daily schedule</p>
+    </div>
+  </div>
+
+  <!-- SHOPPING TAB -->
+  <div x-show="activeTab === 'shopping'" class="fade-in">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-lg font-bold">🛒 Weekly Shopping List</h2>
+      <span x-show="shoppingList.length > 0" class="text-sm font-medium" style="color: var(--primary)" x-text="'~$' + getShoppingTotal()"></span>
+    </div>
+
+    <div x-show="shoppingList.length > 0">
+      <template x-for="(category, cIdx) in getShoppingCategories()" :key="cIdx">
+        <div class="mb-4">
+          <h3 class="text-sm font-semibold text-gray-500 mb-2 uppercase tracking-wide" x-text="category.name"></h3>
+          <div class="space-y-1">
+            <template x-for="(item, iIdx) in category.items" :key="iIdx">
+              <div class="card p-3 flex items-center gap-3" :class="item.checked ? 'opacity-50' : ''">
+                <button @click="item.checked = !item.checked; saveData()" class="flex-shrink-0 w-6 h-6 rounded border-2 flex items-center justify-center transition-all"
+                  :class="item.checked ? 'bg-green-600 border-green-600' : 'border-gray-300'">
+                  <span x-show="item.checked" class="text-white text-xs">✓</span>
+                </button>
+                <div class="flex-1">
+                  <span class="text-sm" :class="item.checked ? 'line-through text-gray-400' : ''" x-text="item.name"></span>
+                  <span class="text-xs text-gray-400 ml-1" x-text="item.quantity"></span>
+                </div>
+                <span class="text-xs text-gray-400" x-text="'$' + item.price.toFixed(2)"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <div class="card p-4 text-center mt-4" style="background: #F0FFF4">
+        <p class="text-sm text-gray-600 mb-2">Items already in your pantry are excluded ✨</p>
+        <div class="text-xs text-gray-400">
+          <span x-text="getCheckedCount()"></span>/<span x-text="shoppingList.length"></span> items checked off
+        </div>
+      </div>
+    </div>
+
+    <div x-show="shoppingList.length === 0" class="text-center py-12">
+      <span class="text-4xl block mb-3">🛒</span>
+      <p class="text-gray-400">Generate a meal plan first to see your shopping list</p>
+    </div>
+  </div>
+
+  <!-- NUTRITION TAB -->
+  <div x-show="activeTab === 'nutrition'" class="fade-in">
+    <h2 class="text-lg font-bold mb-3">📊 Weekly Nutrition Dashboard</h2>
+
+    <div x-show="mealPlan.length > 0" class="space-y-4">
+      <!-- Targets -->
+      <div class="card p-4">
+        <h3 class="font-semibold mb-3">Daily Targets vs Averages</h3>
+        <div class="space-y-3">
+          <template x-for="target in nutritionTargets">
+            <div>
+              <div class="flex justify-between text-sm mb-1">
+                <span x-text="target.label"></span>
+                <span class="font-medium"><span x-text="target.actual"></span> / <span x-text="target.goal"></span> <span x-text="target.unit"></span></span>
+              </div>
+              <div class="w-full bg-gray-100 rounded-full h-3">
+                <div class="h-3 rounded-full transition-all" :style="'width:' + Math.min(100, target.percent) + '%'" 
+                  :class="target.percent > 110 ? 'bg-red-400' : target.percent > 90 ? 'bg-green-500' : target.percent > 70 ? 'bg-yellow-400' : 'bg-orange-400'"></div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Weekly Summary -->
+      <div class="card p-4">
+        <h3 class="font-semibold mb-3">This Week at a Glance</h3>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="bg-green-50 rounded-xl p-3 text-center">
+            <div class="text-2xl font-bold" style="color: var(--primary)" x-text="'$' + getWeeklyCost()"></div>
+            <div class="text-xs text-gray-500">Weekly cost</div>
+          </div>
+          <div class="bg-blue-50 rounded-xl p-3 text-center">
+            <div class="text-2xl font-bold text-blue-700" x-text="getWeeklyMeals()"></div>
+            <div class="text-xs text-gray-500">Total meals</div>
+          </div>
+          <div class="bg-purple-50 rounded-xl p-3 text-center">
+            <div class="text-2xl font-bold text-purple-700" x-text="getAvgCookTime() + ' min'"></div>
+            <div class="text-xs text-gray-500">Avg cook time</div>
+          </div>
+          <div class="bg-amber-50 rounded-xl p-3 text-center">
+            <div class="text-2xl font-bold text-amber-700" x-text="getConditionScore()"></div>
+            <div class="text-xs text-gray-500">Health score</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Condition-specific notes -->
+      <div x-show="profile.conditions.length > 0" class="card p-4">
+        <h3 class="font-semibold mb-2">🏥 Condition-Aware Notes</h3>
+        <div class="space-y-2">
+          <template x-for="note in conditionNotes">
+            <div class="bg-blue-50 rounded-lg p-3 text-sm text-blue-800 flex items-start gap-2">
+              <span>ℹ️</span>
+              <span x-text="note"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <div x-show="mealPlan.length === 0" class="text-center py-12">
+      <span class="text-4xl block mb-3">📊</span>
+      <p class="text-gray-400">Generate a meal plan to see your nutrition dashboard</p>
+    </div>
+  </div>
+</main>
+
+<!-- Error Toast -->
+<div x-show="errorMsg" x-cloak class="fixed bottom-20 left-4 right-4 max-w-lg mx-auto bg-red-50 border border-red-200 rounded-xl p-4 shadow-lg z-50 fade-in">
+  <div class="flex items-start gap-2">
+    <span class="text-lg">⚠️</span>
+    <div class="flex-1">
+      <p class="text-sm text-red-800" x-text="errorMsg"></p>
+    </div>
+    <button @click="errorMsg = ''" class="text-red-400 font-bold">✕</button>
+  </div>
+</div>
+
+<!-- Success Toast -->
+<div x-show="successMsg" x-cloak class="fixed bottom-20 left-4 right-4 max-w-lg mx-auto bg-green-50 border border-green-200 rounded-xl p-4 shadow-lg z-50 fade-in">
+  <div class="flex items-center gap-2">
+    <span class="text-lg">✅</span>
+    <p class="text-sm text-green-800" x-text="successMsg"></p>
+  </div>
+</div>
+
+<script>
+// Global AI stats
+window.aiStats = {
+  totalInputTokens: 0,
+  totalOutputTokens: 0,
+  totalTime: 0,
+  aliasTimes: {}
+};
+
+async function callAI(alias, params, retries = 3) {
+  const start = Date.now();
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await fetch('https://16504442930.work/run_prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alias, params })
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        if (attempt === retries - 1) throw new Error(`API error (${res.status}): ${text}`);
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+      const data = await res.json();
+      const elapsed = Date.now() - start;
+      window.aiStats.totalTime += elapsed;
+      window.aiStats.aliasTimes[alias] = (window.aiStats.aliasTimes[alias] || 0) + elapsed;
+      if (data.usage) {
+        window.aiStats.totalInputTokens += data.usage.input_tokens || data.usage.prompt_tokens || 0;
+        window.aiStats.totalOutputTokens += data.usage.output_tokens || data.usage.completion_tokens || 0;
+      }
+      return data;
+    } catch (e) {
+      if (attempt === retries - 1) {
+        // Use AI to format error
+        try {
+          const errRes = await fetch('https://16504442930.work/run_prompt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              alias: 'genericAI',
+              params: {
+                prompt: `Reformat this error message to be user-friendly and empowering. Include the full original error. Error: "${e.message}". Return JSON with key "message" as a string.`
+              }
+            })
+          });
+          const errData = await errRes.json();
+          throw new Error(errData.message || e.message);
+        } catch (e2) {
+          throw e;
+        }
+      }
+      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+    }
+  }
+}
+
+function app() {
+  return {
+    // State
+    showOnboarding: true,
+    onboardStep: 1,
+    showSettings: false,
+    activeTab: 'plan',
+    selectedDay: 0,
+    expandedMeal: null,
+    loading: false,
+    errorMsg: '',
+    successMsg: '',
+
+    // Profile
+    profile: {
+      conditions: [],
+      medications: [],
+      allergies: [],
+      diet: 'No restriction',
+      cuisines: [],
+      budget: 60,
+      cookingLevel: 'Basic — simple stovetop, oven, slow cooker',
+      pantry: []
+    },
+
+    // Data
+    mealPlan: [],
+    shoppingList: [],
+    reminders: [],
+    nutritionTargets: [],
+    conditionNotes: [],
+
+    // Form helpers
+    newCondition: '',
+    newMed: { name: '', time: '', notes: '' },
+    newPantryItem: '',
+
+    // Options
+    commonConditions: ['Type 2 Diabetes', 'Hypertension', 'High Cholesterol', 'Heart Disease', 'Arthritis', 'Osteoporosis', 'GERD/Acid Reflux', 'Kidney Disease', 'Celiac Disease', 'Prediabetes'],
+    dietOptions: ['No restriction', 'Low sodium', 'Low carb', 'Mediterranean', 'DASH', 'Heart-healthy', 'Anti-inflammatory', 'Vegetarian', 'Gluten-free'],
+    commonAllergies: ['Dairy', 'Gluten', 'Nuts', 'Shellfish', 'Eggs', 'Soy', 'Fish'],
+    cuisineOptions: ['American', 'Italian', 'Mexican', 'Asian', 'Mediterranean', 'Indian', 'Southern', 'French'],
+
+    get weekDays() {
+      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const result = [];
+      const today = new Date();
+      const startOfWeek = new Date(today);
+      startOfWeek.setDate(today.getDate() - today.getDay());
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(startOfWeek);
+        d.setDate(startOfWeek.getDate() + i);
+        result.push({ short: days[d.getDay()], date: d.getDate() });
+      }
+      return result;
+    },
+
+    get aiStats() { return window.aiStats; },
+
+    init() {
+      const saved = localStorage.getItem('nutriplan_data');
+      if (saved) {
+        try {
+          const data = JSON.parse(saved);
+          this.profile = data.profile || this.profile;
+          this.mealPlan = data.mealPlan || [];
+          this.shoppingList = data.shoppingList || [];
+          this.reminders = data.reminders || [];
+          this.nutritionTargets = data.nutritionTargets || [];
+          this.conditionNotes = data.conditionNotes || [];
+          if (this.mealPlan.length > 0) {
+            this.showOnboarding = false;
+          }
+        } catch (e) { }
+      }
+      // Set selectedDay to today
+      this.selectedDay = new Date().getDay();
+    },
+
+    saveData() {
+      localStorage.setItem('nutriplan_data', JSON.stringify({
+        profile: this.profile,
+        mealPlan: this.mealPlan,
+        shoppingList: this.shoppingList,
+        reminders: this.reminders,
+        nutritionTargets: this.nutritionTargets,
+        conditionNotes: this.conditionNotes
+      }));
+    },
+
+    toggleCondition(c) {
+      const idx = this.profile.conditions.indexOf(c);
+      if (idx > -1) this.profile.conditions.splice(idx, 1);
+      else this.profile.conditions.push(c);
+    },
+
+    addCustomCondition() {
+      if (this.newCondition.trim() && !this.profile.conditions.includes(this.newCondition.trim())) {
+        this.profile.conditions.push(this.newCondition.trim());
+        this.newCondition = '';
+      }
+    },
+
+    addMedication() {
+      if (this.newMed.name.trim()) {
+        this.profile.medications.push({ ...this.newMed });
+        this.newMed = { name: '', time: '', notes: '' };
+      }
+    },
+
+    toggleAllergy(a) {
+      const idx = this.profile.allergies.indexOf(a);
+      if (idx > -1) this.profile.allergies.splice(idx, 1);
+      else this.profile.allergies.push(a);
+    },
+
+    toggleCuisine(c) {
+      const idx = this.profile.cuisines.indexOf(c);
+      if (idx > -1) this.profile.cuisines.splice(idx, 1);
+      else this.profile.cuisines.push(c);
+    },
+
+    addPantryItem() {
+      if (this.newPantryItem.trim() && !this.profile.pantry.includes(this.newPantryItem.trim())) {
+        this.profile.pantry.push(this.newPantryItem.trim());
+        this.newPantryItem = '';
+      }
+    },
+
+    async completeOnboarding() {
+      this.saveData();
+      this.showOnboarding = false;
+      await this.generateMealPlan();
+    },
+
+    async generateMealPlan() {
+      this.loading = true;
+      this.errorMsg = '';
+
+      const medsText = this.profile.medications.map(m => `${m.name} taken ${m.time} (${m.notes})`).join('; ') || 'None';
+      const conditionsText = this.profile.conditions.join(', ') || 'None';
+      const allergiesText = this.profile.allergies.join(', ') || 'None';
+      const cuisinesText = this.profile.cuisines.join(', ') || 'Any';
+      const pantryText = this.profile.pantry.join(', ') || 'None listed';
+
+      const prompt = `You are an expert clinical nutritionist and chef specializing in single-person meal planning for adults with chronic health conditions. Generate a complete 7-day single-serving meal plan.
+
+PATIENT PROFILE:
+- Health conditions: ${conditionsText}
+- Medications: ${medsText}
+- Allergies: ${allergiesText}
+- Diet preference: ${this.profile.diet}
+- Favorite cuisines: ${cuisinesText}
+- Weekly budget: $${this.profile.budget}
+- Cooking level: ${this.profile.cookingLevel}
+- Pantry items on hand: ${pantryText}
+
+IMPORTANT RULES:
+1. All recipes must be SINGLE SERVING
+2. Respect ALL medication-food interactions (e.g., warfarin/vitamin K, statins/grapefruit, metformin timing, etc.)
+3. Enforce condition-specific nutrition limits (e.g., low sodium <1500mg/day for hypertension, controlled carbs for diabetes)
+4. Stay within the weekly budget
+5. Minimize food waste — use ingredients across multiple meals in the week
+6. Include batch-cooking tips where appropriate for a single person
+7. Coordinate meal times with medication schedules
+8. Keep recipes simple matching the cooking level
+
+Return ONLY valid JSON with this exact structure:
+{
+  "mealPlan": [
+    {
+      "day": number (0=Sunday through 6=Saturday),
+      "meals": [
+        {
+          "type": string ("Breakfast" | "Lunch" | "Dinner" | "Snack"),
+          "name": string (appetizing meal name),
+          "subtitle": string (brief 5-8 word description),
+          "emoji": string (single food emoji),
+          "time": string (suggested time like "7:30 AM"),
+          "calories": number,
+          "protein": number (grams),
+          "carbs": number (grams),
+          "fat": number (grams),
+          "sodium": number (mg),
+          "fiber": number (grams),
+          "cost": number (estimated cost in dollars, e.g. 3.50),
+          "cookTime": number (minutes),
+          "ingredients": string[] (array of strings with quantities for 1 serving),
+          "steps": string[] (array of short cooking step strings),
+          "medNote": string (medication timing note related to this meal, or empty string if none),
+          "batchTip": string (batch cooking tip for single person, or empty string if none)
+        }
+      ]
+    }
+  ],
+  "shoppingList": [
+    {
+      "name": string (item name),
+      "quantity": string (amount needed for the week),
+      "category": string ("Produce" | "Protein" | "Dairy" | "Grains" | "Canned/Pantry" | "Frozen" | "Spices" | "Other"),
+      "price": number (estimated price in dollars),
+      "checked": boolean (always false)
+    }
+  ],
+  "nutritionTargets": [
+    {
+      "label": string (nutrient name),
+      "actual": number (daily average from the plan),
+      "goal": number (recommended daily target based on conditions),
+      "unit": string ("cal" | "g" | "mg"),
+      "percent": number (actual/goal * 100, rounded to integer)
+    }
+  ],
+  "conditionNotes": string[] (array of 3-5 important notes about how this plan addresses the patient's specific conditions and medication interactions)
+}
+
+Exclude pantry items from the shopping list. Ensure 3 meals and 1 snack per day. Make it nutritionally balanced and delicious.`;
+
+      try {
+        const result = await callAI('genericAI', { prompt });
+        
+        if (result && result.mealPlan) {
+          this.mealPlan = result.mealPlan;
+          this.shoppingList = result.shoppingList || [];
+          this.nutritionTargets = result.nutritionTargets || [];
+          this.conditionNotes = result.conditionNotes || [];
+          this.buildReminders();
+          this.saveData();
+          this.successMsg = '✨ Your personalized meal plan is ready!';
+          setTimeout(() => this.successMsg = '', 3000);
+        } else {
+          throw new Error('Unexpected response format');
+        }
+      } catch (e) {
+        this.errorMsg = e.message || 'Something went wrong generating your meal plan. Please try again.';
+        setTimeout(() => this.errorMsg = '', 8000);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    buildReminders() {
+      const reminders = [];
+      const todayMeals = this.getDayMeals();
+      
+      // Add medication reminders
+      this.profile.medications.forEach(med => {
+        reminders.push({
+          emoji: '💊',
+          title: med.name,
+          time: med.time,
+          detail: med.notes || 'Take as directed',
+          type: 'med',
+          completed: false,
+          sortOrder: this.timeToMinutes(med.time)
+        });
+      });
+
+      // Add meal reminders
+      todayMeals.forEach(meal => {
+        reminders.push({
+          emoji: meal.emoji,
+          title: meal.name,
+          time: meal.time + ' — ' + meal.type,
+          detail: meal.medNote || `${meal.calories} cal · ${meal.cookTime || 15} min to prepare`,
+          type: 'meal',
+          completed: false,
+          sortOrder: this.timeToMinutes(meal.time)
+        });
+      });
+
+      // Add hydration reminders
+      ['9:00 AM', '12:00 PM', '3:00 PM', '6:00 PM'].forEach(time => {
+        reminders.push({
+          emoji: '💧',
+          title: 'Hydration check',
+          time: time,
+          detail: 'Drink a glass of water (8 oz)',
+          type: 'water',
+          completed: false,
+          sortOrder: this.timeToMinutes(time)
+        });
+      });
+
+      reminders.sort((a, b) => a.sortOrder - b.sortOrder);
+      this.reminders = reminders;
+    },
+
+    timeToMinutes(timeStr) {
+      if (!timeStr) return 0;
+      const match = timeStr.match(/(\d{1,2}):?(\d{2})?\s*(AM|PM|am|pm)?/);
+      if (!match) return 0;
+      let h = parseInt(match[1]);
+      const m = parseInt(match[2] || 0);
+      const ampm = (match[3] || '').toUpperCase();
+      if (ampm === 'PM' && h < 12) h += 12;
+      if (ampm === 'AM' && h === 12) h = 0;
+      return h * 60 + m;
+    },
+
+    getDayMeals() {
+      const dayPlan = this.mealPlan.find(d => d.day === this.selectedDay);
+      return dayPlan ? dayPlan.meals : [];
+    },
+
+    getDayTotals() {
+      const meals = this.getDayMeals();
+      return {
+        calories: meals.reduce((s, m) => s + (m.calories || 0), 0),
+        protein: meals.reduce((s, m) => s + (m.protein || 0), 0),
+        cost: meals.reduce((s, m) => s + (m.cost || 0), 0).toFixed(2)
+      };
+    },
+
+    toggleReminder(idx) {
+      this.reminders[idx].completed = !this.reminders[idx].completed;
+    },
+
+    getShoppingCategories() {
+      const cats = {};
+      this.shoppingList.forEach(item => {
+        const cat = item.category || 'Other';
+        if (!cats[cat]) cats[cat] = { name: cat, items: [] };
+        cats[cat].items.push(item);
+      });
+      return Object.values(cats);
+    },
+
+    getShoppingTotal() {
+      return this.shoppingList.reduce((s, i) => s + (i.price || 0), 0).toFixed(2);
+    },
+
+    getCheckedCount() {
+      return this.shoppingList.filter(i => i.checked).length;
+    },
+
+    getWeeklyCost() {
+      let total = 0;
+      this.mealPlan.forEach(day => {
+        (day.meals || []).forEach(meal => { total += meal.cost || 0; });
+      });
+      return total.toFixed(2);
+    },
+
+    getWeeklyMeals() {
+      let count = 0;
+      this.mealPlan.forEach(day => { count += (day.meals || []).length; });
+      return count;
+    },
+
+    getAvgCookTime() {
+      let total = 0, count = 0;
+      this.mealPlan.forEach(day => {
+        (day.meals || []).forEach(meal => {
+          if (meal.cookTime) { total += meal.cookTime; count++; }
+        });
+      });
+      return count > 0 ? Math.round(total / count) : 15;
+    },
+
+    getConditionScore() {
+      if (this.nutritionTargets.length === 0) return 'N/A';
+      const avgPct = this.nutritionTargets.reduce((s, t) => {
+        const diff = Math.abs(100 - t.percent);
+        return s + Math.max(0, 100 - diff);
+      }, 0) / this.nutritionTargets.length;
+      return Math.round(avgPct) + '%';
+    },
+
+    resetApp() {
+      if (confirm('This will delete all your data. Are you sure?')) {
+        localStorage.removeItem('nutriplan_data');
+        location.reload();
+      }
+    }
+  };
+}
+</script>
+</body>
+</html>
